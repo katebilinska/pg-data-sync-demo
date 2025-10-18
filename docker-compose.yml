@@ -1,0 +1,34 @@
+services:
+  pg_primary:
+    build: ./primary
+    container_name: pg_primary
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    command: >
+      postgres
+      -c listen_addresses='*'
+      -c wal_level=logical
+      -c max_wal_senders=10
+      -c max_replication_slots=10
+      -c shared_preload_libraries='pg_cron'
+      -c max_locks_per_transaction=256
+
+  pg_replica:
+    build: ./replica
+    container_name: pg_replica
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    depends_on:
+      pg_primary:
+        condition: service_healthy
