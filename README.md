@@ -35,6 +35,7 @@ git clone https://github.com/katebilinska/pg-data-sync-demo.git
 cd pg-data-sync-demo
 ```
 
+
 2. Run the setup script:
 ```bash
 bash setup.sh
@@ -45,6 +46,7 @@ This will:
 - Wait until the primary and replica databases are ready
 - Establish replication connection
 - Create the subscription from primary to replica
+
 
 3. Verify replication:
    
