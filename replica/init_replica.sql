@@ -15,16 +15,27 @@ ALTER TABLE t1 ADD CONSTRAINT t1_operation_guid_unique UNIQUE (event_date, opera
 CREATE INDEX IF NOT EXISTS t1_idx_state_id ON t1 (state, id);
 CREATE INDEX IF NOT EXISTS t1_idx_client_optype ON t1 (client_id, op_type);
 
-CREATE TABLE IF NOT EXISTS t1_p_2025_09 PARTITION OF t1
-    FOR VALUES FROM ('2025-09-01 00:00:00+00') TO ('2025-10-01 00:00:00+00');
-CREATE TABLE IF NOT EXISTS t1_p_2025_10 PARTITION OF t1
-    FOR VALUES FROM ('2025-10-01 00:00:00+00') TO ('2025-11-01 00:00:00+00');
-CREATE TABLE IF NOT EXISTS t1_p_2025_11 PARTITION OF t1
-    FOR VALUES FROM ('2025-11-01 00:00:00+00') TO ('2025-12-01 00:00:00+00');
-CREATE TABLE IF NOT EXISTS t1_p_2025_12 PARTITION OF t1
-    FOR VALUES FROM ('2025-12-01 00:00:00+00') TO ('2026-01-01 00:00:00+00');
+DO $$
+DECLARE
+    start_date DATE := DATE '2025-09-01';
+    end_date   DATE := DATE '2026-01-01';
+    current DATE := start_date;
+    next_date DATE;
+    partition_name TEXT;
+BEGIN
+    WHILE current < end_date LOOP
+        next_date := (current + INTERVAL '1 month')::DATE;
+        partition_name := format('t1_p_%s', to_char(current, 'YYYY_MM'));
 
-ALTER TABLE t1_p_2025_09 REPLICA IDENTITY FULL;
-ALTER TABLE t1_p_2025_10 REPLICA IDENTITY FULL;
-ALTER TABLE t1_p_2025_11 REPLICA IDENTITY FULL;
-ALTER TABLE t1_p_2025_12 REPLICA IDENTITY FULL;
+        EXECUTE format($f$
+            CREATE TABLE IF NOT EXISTS %I PARTITION OF t1
+            FOR VALUES FROM ('%s 00:00:00+00') TO ('%s 00:00:00+00');
+        $f$, partition_name, current, next_date);
+
+        EXECUTE format($f$
+            ALTER TABLE %I REPLICA IDENTITY FULL;
+        $f$, partition_name);
+
+        current := next_date;
+    END LOOP;
+END $$;

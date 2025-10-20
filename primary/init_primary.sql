@@ -20,22 +20,30 @@ ALTER TABLE t1 REPLICA IDENTITY USING INDEX t1_operation_guid_unique;
 CREATE INDEX IF NOT EXISTS t1_idx_state_id ON t1 (state, id);
 CREATE INDEX IF NOT EXISTS t1_idx_client_optype ON t1 (client_id, op_type);
 
-CREATE TABLE IF NOT EXISTS t1_p_2025_09 PARTITION OF t1
-    FOR VALUES FROM ('2025-09-01 00:00:00+00') TO ('2025-10-01 00:00:00+00');
+DO $$
+DECLARE
+    start_date DATE := DATE '2025-09-01';
+    end_date   DATE := DATE '2026-01-01';
+    current DATE := start_date;
+    next_date DATE;
+    partition_name TEXT;
+BEGIN
+    WHILE current < end_date LOOP
+        next_date := (current + INTERVAL '1 month')::DATE;
+        partition_name := format('t1_p_%s', to_char(current, 'YYYY_MM'));
 
-CREATE TABLE IF NOT EXISTS t1_p_2025_10 PARTITION OF t1
-    FOR VALUES FROM ('2025-10-01 00:00:00+00') TO ('2025-11-01 00:00:00+00');
+        EXECUTE format($f$
+            CREATE TABLE IF NOT EXISTS %I PARTITION OF t1
+            FOR VALUES FROM ('%s 00:00:00+00') TO ('%s 00:00:00+00');
+        $f$, partition_name, current, next_date);
 
-CREATE TABLE IF NOT EXISTS t1_p_2025_11 PARTITION OF t1
-    FOR VALUES FROM ('2025-11-01 00:00:00+00') TO ('2025-12-01 00:00:00+00');
+        EXECUTE format($f$
+            ALTER TABLE %I REPLICA IDENTITY FULL;
+        $f$, partition_name);
 
-CREATE TABLE IF NOT EXISTS t1_p_2025_12 PARTITION OF t1
-    FOR VALUES FROM ('2025-12-01 00:00:00+00') TO ('2026-01-01 00:00:00+00');
-
-ALTER TABLE t1_p_2025_09 REPLICA IDENTITY FULL;
-ALTER TABLE t1_p_2025_10 REPLICA IDENTITY FULL;
-ALTER TABLE t1_p_2025_11 REPLICA IDENTITY FULL;
-ALTER TABLE t1_p_2025_12 REPLICA IDENTITY FULL;
+        current := next_date;
+    END LOOP;
+END $$;
 
 CREATE OR REPLACE FUNCTION t1_generate_data(p_start timestamptz, p_end timestamptz, p_rows bigint)
 RETURNS void LANGUAGE plpgsql AS $$
@@ -52,7 +60,7 @@ BEGIN
             p_start + (random() * extract(epoch FROM diff)) * interval '1 second',
             (trunc((random()*10000)::numeric * 100) / 100)::numeric(14,2) as amount,
             0::smallint as state,
-            gen_random_uuid() as operation_guid, --TODO: add onconflict
+            gen_random_uuid() as operation_guid,
             jsonb_build_object('account_number', lpad((trunc(random()*1000000)+1)::text,10,'0'),
                                'client_id', (trunc(random()*client_cnt)+1)::int,
                                'op_type', (CASE WHEN random() < 0.5 THEN 'online' ELSE 'offline' END)
@@ -123,7 +131,7 @@ ON t1_sum_by_client_op (client_id, op_type);
 CREATE OR REPLACE FUNCTION t1_update_sum_trigger()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY t1_sum_by_client_op;
+    REFRESH MATERIALIZED VIEW t1_sum_by_client_op;
     RETURN NULL;
 END;
 $$;
@@ -145,6 +153,5 @@ BEGIN
         EXECUTE format('GRANT SELECT ON %I TO replicator', r.child);
     END LOOP;
 END $$;
-
 
 CREATE PUBLICATION t1_publication FOR TABLE t1;
